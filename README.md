@@ -21,7 +21,6 @@ Below is the web interface of the application where users can upload an image or
 
 ![App UI](images/test.png)
 
----
 
 ### Model Architecture
 
@@ -29,7 +28,6 @@ This project is based on the MesoNet-4 architecture, a lightweight yet powerful 
 
 ![Architecture](images/architecture.png)
 
----
 
 ### Fine-tuning Accuracy & Loss Graphs
 
@@ -37,7 +35,6 @@ The following plot shows the model's training performance after fine-tuning. The
 
 ![Training Metrics](images/finetune_metrics.png)
 
----
 
 ### Confusion Matrix on Validation Set
 
