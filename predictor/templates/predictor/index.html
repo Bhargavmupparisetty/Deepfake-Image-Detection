@@ -1,0 +1,1202 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Deepfake Detector</title>
+    <link href="https://cdn.jsdelivr.net/npm/tailwindcss@2.2.19/dist/tailwind.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@fortawesome/fontawesome-free@6.1.1/css/all.min.css">
+    <style>
+        .tab-content {
+            display: none;
+        }
+        .tab-content.active {
+            display: block;
+        }
+        .upload-area {
+            border: 2px dashed #cbd5e0;
+            transition: all 0.3s ease;
+        }
+        .upload-area:hover {
+            border-color: #4299e1;
+        }
+        .file-input {
+            opacity: 0;
+            position: absolute;
+            width: 100%;
+            height: 100%;
+            cursor: pointer;
+        }
+        .result-box {
+            transition: all 0.5s ease;
+            max-height: 0;
+            overflow: hidden;
+        }
+        .result-box.show {
+            max-height: 1000px;
+        }
+        .loading {
+            display: none;
+        }
+        .loading.active {
+            display: flex;
+        }
+        @keyframes pulse {
+            0%, 100% {
+                opacity: 1;
+            }
+            50% {
+                opacity: 0.5;
+            }
+        }
+        .animate-pulse {
+            animation: pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+        }
+        .preview-img {
+            max-height: 300px;
+            object-fit: contain;
+        }
+        .progress-container {
+            width: 100%;
+            background-color: #e0e0e0;
+            border-radius: 0.5rem;
+            position: relative;
+        }
+        .tip-box {
+            transition: all 0.3s ease;
+        }
+        .tip-box:hover {
+            transform: translateY(-5px);
+        }
+        .zoom-on-hover {
+            transition: transform 0.3s ease;
+        }
+        .zoom-on-hover:hover {
+            transform: scale(1.05);
+        }
+        .toast {
+            position: fixed;
+            bottom: 20px;
+            right: 20px;
+            padding: 12px 24px;
+            background-color: #4299e1;
+            color: white;
+            border-radius: 4px;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+            display: none;
+            z-index: 50;
+            animation: slideIn 0.3s, fadeOut 0.5s 2.5s;
+            animation-fill-mode: forwards;
+        }
+        @keyframes slideIn {
+            from { transform: translateX(100%); }
+            to { transform: translateX(0); }
+        }
+        @keyframes fadeOut {
+            from { opacity: 1; }
+            to { opacity: 0; }
+        }
+        .heatmap-toggle {
+            cursor: pointer;
+            transition: all 0.2s ease;
+        }
+        .heatmap-toggle:hover {
+            color: #4299e1;
+        }
+    </style>
+</head>
+<body class="bg-gray-100 min-h-screen">
+    <div id="toast" class="toast"></div>
+    <div class="container mx-auto px-4 py-8">
+        <!-- Header Section -->
+        <header class="bg-white rounded-lg shadow-md p-6 mb-8">
+            <div class="flex items-center justify-between">
+                <div class="flex items-center">
+                    <i class="fas fa-shield-alt text-3xl text-blue-600 mr-3"></i>
+                    <h1 class="text-2xl font-bold text-gray-800">Deepfake Detector</h1>
+                </div>
+                <p class="text-gray-500 text-sm hidden sm:block">Detect manipulated images and videos with AI</p>
+            </div>
+        </header>
+
+        <!-- Main Content -->
+        <main class="bg-white rounded-lg shadow-md p-6 mb-8">
+            <!-- Tabs -->
+            <div class="mb-6 border-b border-gray-200">
+                <ul class="flex flex-wrap -mb-px" id="tab-nav">
+                    <li class="mr-2">
+                        <button class="tab-btn active inline-block p-4 text-blue-600 border-b-2 border-blue-600 rounded-t-lg" data-tab="image">
+                            <i class="fas fa-image mr-2"></i>Image Detection
+                        </button>
+                    </li>
+                    <li class="mr-2">
+                        <button class="tab-btn inline-block p-4 text-gray-500 hover:text-gray-600 hover:border-gray-300 rounded-t-lg" data-tab="video">
+                            <i class="fas fa-video mr-2"></i>Video Detection
+                        </button>
+                    </li>
+                </ul>
+            </div>
+
+            <!-- Image Upload Tab Content -->
+            <div id="image-tab" class="tab-content active">
+                <h2 class="text-xl font-semibold text-gray-700 mb-4">Upload Image for Deepfake Detection</h2>
+                <p class="text-gray-600 mb-6">Upload an image to analyze whether it has been manipulated or generated by AI.</p>
+                
+                <form method="POST" enctype="multipart/form-data" id="image-form" class="mb-6">
+                    {% csrf_token %}
+                    <div class="upload-area relative bg-gray-50 rounded-lg p-8 text-center mb-4">
+                        <input type="file" name="image" id="image-input" class="file-input" accept="image/*" required>
+                        <div class="pointer-events-none">
+                            <i class="fas fa-cloud-upload-alt text-4xl text-blue-500 mb-3"></i>
+                            <h3 class="text-lg font-medium text-gray-700">Drag and drop your image here</h3>
+                            <p class="text-sm text-gray-500 mt-2">or click to browse files</p>
+                            <p class="text-xs text-gray-400 mt-2">Supported formats: JPG, PNG, JPEG, WebP</p>
+                        </div>
+                    </div>
+                    
+                    <!-- Image Preview Section -->
+                    <div id="image-preview-container" class="hidden mb-6 text-center">
+                        <div class="bg-gray-50 p-4 rounded-lg">
+                            <h4 class="text-md font-medium text-gray-700 mb-2">Preview</h4>
+                            <img id="image-preview-img" class="preview-img mx-auto rounded-lg border border-gray-200 shadow-sm mb-2" src="#" alt="Preview">
+                            <div class="flex justify-between items-center">
+                                <p class="text-sm text-gray-600">File: <span id="image-name" class="font-medium"></span></p>
+                                <button type="button" id="change-image" class="text-sm text-blue-600 hover:text-blue-800 flex items-center">
+                                    <i class="fas fa-sync-alt mr-1"></i> Change
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div class="text-center">
+                        <button type="submit" id="analyze-image-btn" class="bg-blue-600 hover:bg-blue-700 text-white font-medium py-2 px-6 rounded-md transition duration-300 ease-in-out transform hover:scale-105">
+                            <i class="fas fa-search-plus mr-2"></i>Analyze Image
+                        </button>
+                    </div>
+                </form>
+
+                <!-- Loading indicator for image -->
+                <div id="image-loading" class="loading flex-col items-center justify-center py-8">
+                    <div class="w-16 h-16 border-4 border-blue-500 border-t-transparent rounded-full animate-spin mb-4"></div>
+                    <p class="text-gray-700 mb-2">Analyzing image, please wait...</p>
+                    <div class="w-full max-w-md bg-gray-200 rounded-full h-2.5">
+                        <div id="image-progress-bar" class="bg-blue-600 h-2.5 rounded-full" style="width: 0%"></div>
+                    </div>
+                </div>
+
+                <!-- Results Section for Image -->
+                <div id="image-result" class="result-box bg-gray-50 rounded-lg p-6">
+                    <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+                        <div class="bg-white p-4 rounded-md shadow-sm">
+                            <h4 class="font-medium text-gray-700 mb-2 flex items-center">
+                                <i class="fas fa-image mr-2 text-blue-500"></i>Analyzed Image
+                            </h4>
+                            <div class="relative">
+                                <img id="result-image" class="w-full rounded-lg border border-gray-200" src="#" alt="Analyzed Image">
+                                <button id="toggle-heatmap" class="heatmap-toggle absolute top-2 right-2 bg-white bg-opacity-80 text-gray-700 p-2 rounded-full shadow-sm">
+                                    <i class="fas fa-temperature-high"></i>
+                                </button>
+                            </div>
+                        </div>
+                        
+                        <div class="bg-white p-4 rounded-md shadow-sm">
+                            <div class="text-center mb-4">
+                                <h3 id="result-heading" class="text-xl font-bold"></h3>
+                                <p id="result-description" class="text-sm text-gray-600 mt-2"></p>
+                            </div>
+                            
+                            <div class="mb-4">
+                                <div class="flex justify-between items-center mb-2">
+                                    <h4 class="font-medium text-gray-700">Confidence Score</h4>
+                                    <span class="text-sm text-gray-500">Based on AI analysis</span>
+                                </div>
+                                <div class="relative pt-1">
+                                    <div class="overflow-hidden h-4 text-xs flex rounded bg-gray-200">
+                                        <div id="confidence-bar" class="rounded flex flex-col justify-center text-center text-white" style="width:0%">0%</div>
+                                    </div>
+                                </div>
+                            </div>
+                            
+                            <div class="mt-6">
+                                <h4 class="font-medium text-gray-700 mb-2">Detection Details</h4>
+                                <div class="text-sm text-gray-600">
+                                    <div class="flex justify-between mb-1">
+                                        <span>Image Resolution:</span>
+                                        <span id="image-resolution" class="font-medium"></span>
+                                    </div>
+                                    <div class="flex justify-between mb-1">
+                                        <span>File Size:</span>
+                                        <span id="image-size" class="font-medium"></span>
+                                    </div>
+                                    <div class="flex justify-between mb-1">
+                                        <span>Analysis Time:</span>
+                                        <span id="analysis-time" class="font-medium"></span>
+                                    </div>
+                                </div>
+                            </div>
+                            
+                            <div class="mt-4 pt-4 border-t border-gray-200">
+                                <button id="download-report" class="w-full bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium py-2 px-4 rounded flex items-center justify-center">
+                                    <i class="fas fa-file-download mr-2"></i>Download Detailed Report
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Video Upload Tab Content -->
+            <div id="video-tab" class="tab-content">
+                <h2 class="text-xl font-semibold text-gray-700 mb-4">Upload Video for Deepfake Detection</h2>
+                <p class="text-gray-600 mb-6">Upload a video to analyze whether it has been manipulated or generated by AI.</p>
+                
+                <form method="POST" action="/analyze-video/" enctype="multipart/form-data" id="video-form" class="mb-6">
+                    {% csrf_token %}
+                    <div class="upload-area relative bg-gray-50 rounded-lg p-8 text-center mb-4">
+                        <input type="file" name="video" id="video-input" class="file-input" accept="video/*" required>
+                        <div class="pointer-events-none">
+                            <i class="fas fa-film text-4xl text-blue-500 mb-3"></i>
+                            <h3 class="text-lg font-medium text-gray-700">Drag and drop your video here</h3>
+                            <p class="text-sm text-gray-500 mt-2">or click to browse files</p>
+                            <p class="text-xs text-gray-400 mt-2">Supported formats: MP4, MOV, AVI, WebM</p>
+                        </div>
+                    </div>
+                    
+                    <!-- Video Preview Section -->
+                    <div id="video-preview-container" class="hidden mb-6 text-center">
+                        <div class="bg-gray-50 p-4 rounded-lg">
+                            <h4 class="text-md font-medium text-gray-700 mb-2">Preview</h4>
+                            <video id="video-preview-player" class="w-full rounded-lg border border-gray-200 shadow-sm mb-2" controls></video>
+                            <div class="flex justify-between items-center">
+                                <p class="text-sm text-gray-600">File: <span id="video-name" class="font-medium"></span></p>
+                                <button type="button" id="change-video" class="text-sm text-blue-600 hover:text-blue-800 flex items-center">
+                                    <i class="fas fa-sync-alt mr-1"></i> Change
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div class="text-center">
+                        <button type="submit" id="analyze-video-btn" class="bg-blue-600 hover:bg-blue-700 text-white font-medium py-2 px-6 rounded-md transition duration-300 ease-in-out transform hover:scale-105">
+                            <i class="fas fa-search-plus mr-2"></i>Analyze Video
+                        </button>
+                    </div>
+                </form>
+
+                <!-- Loading indicator for video -->
+                <div id="video-loading" class="loading flex-col items-center justify-center py-8">
+                    <div class="w-16 h-16 border-4 border-blue-500 border-t-transparent rounded-full animate-spin mb-4"></div>
+                    <p class="text-gray-700 mb-2">Processing video, this may take a few minutes...</p>
+                    <div class="w-full max-w-md bg-gray-200 rounded-full h-2.5 mb-2">
+                        <div id="video-progress-bar" class="bg-blue-600 h-2.5 rounded-full" style="width: 0%"></div>
+                    </div>
+                    <p id="video-progress-text" class="text-xs text-gray-500">Processing frames: 0/0</p>
+                </div>
+
+                <!-- Results Section for Video -->
+                <div id="video-result" class="result-box bg-gray-50 rounded-lg p-6">
+                    <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+                        <div class="bg-white rounded-md shadow-sm p-4">
+                            <h4 class="font-medium text-gray-700 mb-2 flex items-center">
+                                <i class="fas fa-video mr-2 text-blue-500"></i>Analyzed Video
+                            </h4>
+                            <video id="video-player" controls playsinline webkit-playsinline class="w-full rounded-lg border border-gray-200 mb-3"></video>
+                            <div class="text-center">
+                                <button id="view-frames" class="text-sm text-blue-600 hover:text-blue-800 inline-flex items-center">
+                                    <i class="fas fa-film mr-1"></i> View Frame-by-Frame Analysis
+                                </button>
+                            </div>
+                        </div>
+                        
+                        <div class="bg-white p-4 rounded-md shadow-sm">
+                            <div class="text-center mb-4">
+                                <h3 id="video-prediction-text" class="text-xl font-bold"></h3>
+                                <p id="video-result-description" class="text-sm text-gray-600 mt-2"></p>
+                            </div>
+                            
+                            <div class="mb-4">
+                                <div class="flex justify-between items-center mb-2">
+                                    <h4 class="font-medium text-gray-700">Confidence Score</h4>
+                                    <span class="text-sm text-gray-500">Based on frame-by-frame analysis</span>
+                                </div>
+                                <div class="relative pt-1">
+                                    <div class="overflow-hidden h-4 text-xs flex rounded bg-gray-200">
+                                        <div id="video-confidence-bar" class="rounded flex flex-col justify-center text-center text-white" style="width:0%">0%</div>
+                                    </div>
+                                </div>
+                            </div>
+                            
+                            <div class="bg-gray-50 p-3 rounded-md mb-4">
+                                <h4 class="font-medium text-gray-700 mb-2">Frame Analysis</h4>
+                                <div class="text-sm text-gray-600">
+                                    <div class="flex justify-between mb-1">
+                                        <span>Total frames analyzed:</span>
+                                        <span id="total-frames" class="font-medium">0</span>
+                                    </div>
+                                    <div class="flex justify-between mb-1">
+                                        <span>Suspicious frames:</span>
+                                        <span id="fake-frames" class="font-medium">0</span>
+                                    </div>
+                                    <div class="flex justify-between mb-1">
+                                        <span>Processing time:</span>
+                                        <span id="video-processing-time" class="font-medium">0s</span>
+                                    </div>
+                                </div>
+                            </div>
+                            
+                            <div class="bg-gray-50 p-3 rounded-md mb-4">
+                                <h4 class="font-medium text-gray-700 mb-2">Timeline Analysis</h4>
+                                <div class="h-12 bg-gray-200 rounded-md relative overflow-hidden" id="timeline-container">
+                                    <!-- Timeline segments will be added here by JS -->
+                                </div>
+                                <div class="flex justify-between text-xs text-gray-500 mt-1">
+                                    <span>0:00</span>
+                                    <span id="video-duration">0:00</span>
+                                </div>
+                            </div>
+                            
+                            <div class="mt-4 pt-4 border-t border-gray-200">
+                                <button id="download-video-report" class="w-full bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium py-2 px-4 rounded flex items-center justify-center">
+                                    <i class="fas fa-file-download mr-2"></i>Download Detailed Report
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <!-- Frame Analysis Section (Hidden by Default) -->
+                    <div id="frame-analysis" class="hidden mt-6 bg-white p-4 rounded-md shadow-sm">
+                        <div class="flex justify-between items-center mb-4">
+                            <h4 class="font-medium text-gray-700">Frame-by-Frame Analysis</h4>
+                            <button id="close-frames" class="text-gray-500 hover:text-gray-700">
+                                <i class="fas fa-times"></i>
+                            </button>
+                        </div>
+                        <div id="frames-container" class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-2">
+                            <!-- Frame thumbnails will be added here by JS -->
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </main>
+
+        <!-- Tips and Information Cards -->
+        <section class="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
+            <div class="bg-white rounded-lg shadow-md p-6 tip-box">
+                <div class="flex items-center mb-4">
+                    <i class="fas fa-info-circle text-blue-500 text-xl mr-3"></i>
+                    <h3 class="text-lg font-semibold text-gray-700">What are Deepfakes?</h3>
+                </div>
+                <p class="text-gray-600 text-sm">Deepfakes are synthetic media where a person's likeness is replaced with someone else's using AI techniques, creating convincing but fabricated content.</p>
+                <button class="mt-3 text-blue-600 text-sm hover:text-blue-800 flex items-center" id="learn-more-deepfakes">
+                    Learn more <i class="fas fa-chevron-right ml-1 text-xs"></i>
+                </button>
+            </div>
+            
+            <div class="bg-white rounded-lg shadow-md p-6 tip-box">
+                <div class="flex items-center mb-4">
+                    <i class="fas fa-robot text-blue-500 text-xl mr-3"></i>
+                    <h3 class="text-lg font-semibold text-gray-700">How Detection Works</h3>
+                </div>
+                <p class="text-gray-600 text-sm">Our detector uses advanced neural networks and digital forensics to identify inconsistencies and artifacts that are typically present in AI-generated or manipulated content.</p>
+                <button class="mt-3 text-blue-600 text-sm hover:text-blue-800 flex items-center" id="learn-more-detection">
+                    View technology <i class="fas fa-chevron-right ml-1 text-xs"></i>
+                </button>
+            </div>
+            
+            <div class="bg-white rounded-lg shadow-md p-6 tip-box">
+                <div class="flex items-center mb-4">
+                    <i class="fas fa-shield-alt text-blue-500 text-xl mr-3"></i>
+                    <h3 class="text-lg font-semibold text-gray-700">Spotting Deepfakes</h3>
+                </div>
+                <p class="text-gray-600 text-sm">Learn to identify potential deepfakes by looking for unnatural facial expressions, lighting inconsistencies, blurry areas, and audio-visual mismatches.</p>
+                <button class="mt-3 text-blue-600 text-sm hover:text-blue-800 flex items-center" id="deepfake-tips">
+                    View checklist <i class="fas fa-chevron-right ml-1 text-xs"></i>
+                </button>
+            </div>
+        </section>
+
+        <!-- Footer -->
+        <footer class="bg-white rounded-lg shadow-md p-6">
+            <div class="flex flex-col md:flex-row justify-between items-center">
+                <p class="text-gray-600 text-sm mb-4 md:mb-0">© 2023 Deepfake Detector Project. All rights reserved.</p>
+                <div class="flex flex-wrap justify-center gap-4">
+                    <a href="#" class="text-gray-500 hover:text-blue-600 flex items-center text-sm">
+                        <i class="fab fa-github mr-1"></i> GitHub
+                    </a>
+                    <a href="#" class="text-gray-500 hover:text-blue-600 flex items-center text-sm">
+                        <i class="fas fa-envelope mr-1"></i> Contact
+                    </a>
+                    <a href="#" class="text-gray-500 hover:text-blue-600 flex items-center text-sm">
+                        <i class="fas fa-question-circle mr-1"></i> FAQ
+                    </a>
+                    <a href="#" class="text-gray-500 hover:text-blue-600 flex items-center text-sm">
+                        <i class="fas fa-lock mr-1"></i> Privacy Policy
+                    </a>
+                </div>
+            </div>
+        </footer>
+    </div>
+
+    <!-- Information Modal -->
+    <div id="info-modal" class="fixed inset-0 bg-black bg-opacity-50 z-50 flex items-center justify-center hidden">
+        <div class="bg-white rounded-lg shadow-xl max-w-lg w-full max-h-screen overflow-y-auto">
+            <div class="p-6">
+                <div class="flex justify-between items-center mb-4">
+                    <h3 id="modal-title" class="text-xl font-bold text-gray-800"></h3>
+                    <button id="close-modal" class="text-gray-500 hover:text-gray-700">
+                        <i class="fas fa-times"></i>
+                    </button>
+                </div>
+                <div id="modal-content" class="text-gray-600"></div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        document.addEventListener('DOMContentLoaded', function() {
+            // Tab switching functionality
+            const tabs = document.querySelectorAll('.tab-btn');
+            const tabContents = document.querySelectorAll('.tab-content');
+            
+            tabs.forEach(tab => {
+                tab.addEventListener('click', () => {
+                    // Remove active class from all tabs
+                    tabs.forEach(t => t.classList.remove('active', 'text-blue-600', 'border-b-2', 'border-blue-600'));
+                    tabs.forEach(t => t.classList.add('text-gray-500'));
+                    
+                    // Add active class to clicked tab
+                    tab.classList.add('active', 'text-blue-600', 'border-b-2', 'border-blue-600');
+                    tab.classList.remove('text-gray-500');
+                    
+                    // Hide all tab content
+                    tabContents.forEach(content => content.classList.remove('active'));
+                    
+                    // Show the corresponding tab content
+                    document.getElementById(`${tab.dataset.tab}-tab`).classList.add('active');
+                });
+            });
+            
+            // Toast notification function
+            function showToast(message) {
+                const toast = document.getElementById('toast');
+                toast.textContent = message;
+                toast.style.display = 'block';
+                
+                setTimeout(() => {
+                    toast.style.display = 'none';
+                }, 3000);
+            }
+            
+            // Image upload handling with preview
+            const imageInput = document.getElementById('image-input');
+            const imagePreviewContainer = document.getElementById('image-preview-container');
+            const imagePreviewImg = document.getElementById('image-preview-img');
+            const imageName = document.getElementById('image-name');
+            const changeImage = document.getElementById('change-image');
+            
+            imageInput.addEventListener('change', function() {
+                if (this.files && this.files[0]) {
+                    const file = this.files[0];
+                    const reader = new FileReader();
+                    
+                    reader.onload = function(e) {
+                        imagePreviewImg.src = e.target.result;
+                        imageName.textContent = file.name;
+                        imagePreviewContainer.classList.remove('hidden');
+                        
+                        // Format file size
+                        const fileSize = (file.size / 1024).toFixed(2) + ' KB';
+                        
+                        // Create an image object to get dimensions
+                        const img = new Image();
+                        img.onload = function() {
+                            document.getElementById('image-resolution').textContent = `${this.width} × ${this.height}`;
+                            document.getElementById('image-size').textContent = fileSize;
+                        }
+                        img.src = e.target.result;
+                    };
+                    
+                    reader.readAsDataURL(file);
+                    showToast('Image uploaded successfully!');
+                }
+            });
+            
+            changeImage.addEventListener('click', function() {
+                imageInput.click();
+            });
+            
+            // Video upload handling with preview
+            const videoInput = document.getElementById('video-input');
+            const videoPreviewContainer = document.getElementById('video-preview-container');
+            const videoPreviewPlayer = document.getElementById('video-preview-player');
+            const videoName = document.getElementById('video-name');
+            const changeVideo = document.getElementById('change-video');
+            
+            videoInput.addEventListener('change', function() {
+                if (this.files && this.files[0]) {
+                    const file = this.files[0];
+                    const videoURL = URL.createObjectURL(file);
+                    
+                    videoPreviewPlayer.src = videoURL;
+                    videoName.textContent = file.name;
+                    videoPreviewContainer.classList.remove('hidden');
+                    
+                    // Video metadata loading
+                    videoPreviewPlayer.onloadedmetadata = function() {
+                        const duration = Math.round(videoPreviewPlayer.duration);
+                        const minutes = Math.floor(duration / 60);
+                        const seconds = duration % 60;
+                        document.getElementById('video-duration').textContent = `${minutes}:${seconds.toString().padStart(2, '0')}`;
+                    };
+                    
+                    showToast('Video uploaded successfully!');
+                }
+            });
+            
+            changeVideo.addEventListener('click', function() {
+                videoInput.click();
+            });
+            
+            // Image form submission handling
+            const imageForm = document.getElementById('image-form');
+            const analyzeImageBtn = document.getElementById('analyze-image-btn');
+            const imageLoading = document.getElementById('image-loading');
+            const imageResult = document.getElementById('image-result');
+            const imageProgressBar = document.getElementById('image-progress-bar');
+
+            
+            
+            imageForm.addEventListener("submit", function (e) {
+                e.preventDefault();
+            
+                if (!imageInput.files || !imageInput.files[0]) {
+                    showToast("Please select an image first!");
+                    return;
+                }
+            
+                // Show loading indicator
+                imageLoading.classList.add("active");
+                imageForm.classList.add("hidden");
+            
+                // Prepare form data
+                const formData = new FormData(imageForm);
+            
+                // Send AJAX request
+                fetch(imageForm.action || window.location.href, {
+                    method: "POST",
+                    body: formData,
+                    headers: {
+                        "X-Requested-With": "XMLHttpRequest"  // Identify as AJAX
+                    }
+                })
+                    .then(response => {
+                        if (!response.ok) throw new Error("Server error");
+                        return response.json();
+                    })
+                    .then(data => {
+                        imageLoading.classList.remove("active");
+                        if (data.error) {
+                            showToast(data.error);
+                            imageForm.classList.remove("hidden");
+                        } else {
+                            displayImageResult(data);
+                        }
+                    })
+                    .catch(error => {
+                        console.error("Error:", error);
+                        showToast("An error occurred during analysis.");
+                        imageLoading.classList.remove("active");
+                        imageForm.classList.remove("hidden");
+                    });
+            });
+
+            function displayImageResult(data) {
+                // Show result container
+                imageResult.classList.add("show");
+            
+                // Set result image
+                document.getElementById("result-image").src = imagePreviewImg.src;
+            
+                // Set result heading and description
+                const resultHeading = document.getElementById("result-heading");
+                const resultDescription = document.getElementById("result-description");
+                const confidenceBar = document.getElementById("confidence-bar");
+            
+                const prediction = data.prediction;
+                const confidence = data.confidence;  // 0 to 1 from model
+            
+                if (prediction === "FAKE") {
+                    resultHeading.textContent = "LIKELY FAKE";
+                    resultHeading.className = "text-xl font-bold text-red-600";
+                    resultDescription.textContent = "Our analysis indicates this image has likely been manipulated or AI-generated.";
+                    confidenceBar.className = "rounded flex flex-col justify-center text-center text-white bg-red-500";
+                } else {
+                    resultHeading.textContent = "LIKELY AUTHENTIC";
+                    resultHeading.className = "text-xl font-bold text-green-600";
+                    resultDescription.textContent = "Our analysis indicates this image appears to be authentic with no signs of manipulation.";
+                    confidenceBar.className = "rounded flex flex-col justify-center text-center text-white bg-green-500";
+                }
+            
+                // Confidence score (convert to percentage)
+                const confidencePercent = Math.round(confidence * 100);
+                confidenceBar.style.width = "0%";
+                setTimeout(() => {
+                    confidenceBar.style.width = `${confidencePercent}%`;
+                    confidenceBar.textContent = `${confidencePercent}%`;
+                }, 100);
+            
+                // Set analysis time
+                document.getElementById("analysis-time").textContent = `${data.processing_time.toFixed(2)}s`;
+            }
+
+            
+          /***  // Function to simulate image analysis result
+            function simulateImageResult() {
+                // Show result container
+                imageResult.classList.add('show');
+                
+                // Set result image
+                document.getElementById('result-image').src = imagePreviewImg.src;
+                
+                // Randomly decide if fake or real for demo purposes
+                const isFake = Math.random() > 0.5;
+                const confidenceScore = isFake ? Math.floor(Math.random() * 20) + 80 : Math.floor(Math.random() * 30) + 10;
+                
+                // Set result heading and description
+                const resultHeading = document.getElementById('result-heading');
+                const resultDescription = document.getElementById('result-description');
+                const confidenceBar = document.getElementById('confidence-bar');
+                
+                if (isFake) {
+                    resultHeading.textContent = 'LIKELY FAKE';
+                    resultHeading.className = 'text-xl font-bold text-red-600';
+                    resultDescription.textContent = 'Our analysis indicates this image has likely been manipulated or AI-generated.';
+                    confidenceBar.className = 'rounded flex flex-col justify-center text-center text-white bg-red-500';
+                } else {
+                    resultHeading.textContent = 'LIKELY AUTHENTIC';
+                    resultHeading.className = 'text-xl font-bold text-green-600';
+                    resultDescription.textContent = 'Our analysis indicates this image appears to be authentic with no signs of manipulation.';
+                    confidenceBar.className = 'rounded flex flex-col justify-center text-center text-white bg-green-500';
+                }
+                
+                // Animate confidence bar
+                confidenceBar.style.width = '0%';
+                setTimeout(() => {
+                    confidenceBar.style.width = `${confidenceScore}%`;
+                    confidenceBar.textContent = `${confidenceScore}%`;
+                }, 100);
+                
+                // Set analysis time
+                document.getElementById('analysis-time').textContent = `${Math.floor(Math.random() * 3) + 2}.${Math.floor(Math.random() * 9)}s`;
+            }
+            **/
+
+
+
+
+            // Video form submission handling
+            const videoForm = document.getElementById('video-form');
+            const analyzeVideoBtn = document.getElementById('analyze-video-btn');
+            const videoLoading = document.getElementById('video-loading');
+            const videoResult = document.getElementById('video-result');
+            const videoProgressBar = document.getElementById('video-progress-bar');
+            const videoProgressText = document.getElementById('video-progress-text');
+            
+            videoForm.addEventListener('submit', function(e) {
+                e.preventDefault();
+                
+                // Check if a video file is selected
+                if (!videoInput.files || !videoInput.files[0]) {
+                    showToast('Please select a video first!');
+                    return;
+                }
+                
+                // Show loading indicator
+                videoLoading.classList.add('active');
+                videoForm.classList.add('hidden');
+                
+                // Reset and start progress animation
+                progressValue = 0;
+                videoProgressBar.style.width = '0%';
+                videoProgressText.textContent = 'Processing frames: starting...';
+                
+                // Create simulated progress for better UX
+                progressInterval = setInterval(() => {
+                    if (progressValue < 90) {
+                        progressValue += Math.random() * 5;
+                        if (progressValue > 90) progressValue = 90;
+                        
+                        videoProgressBar.style.width = `${progressValue}%`;
+                        videoProgressText.textContent = `Processing frames: ${Math.round(progressValue)}%`;
+                    }
+                }, 1000);
+                
+                // Prepare form data with the video file
+                const formData = new FormData(videoForm);
+                
+                // Send the video file to the server via AJAX
+                fetch(videoForm.action || window.location.href, {
+                    method: 'POST',
+                    body: formData,
+                    headers: {
+                        'X-Requested-With': 'XMLHttpRequest',
+                        'X-CSRFToken': getCookie('csrftoken')
+                    }
+                })
+                .then(response => {
+                    clearInterval(progressInterval);
+                    
+                    if (!response.ok) {
+                        throw new Error(`Server error: ${response.status} ${response.statusText}`);
+                    }
+                    return response.json();
+                })
+                .then(data => {
+                    // Complete progress bar
+                    progressValue = 100;
+                    videoProgressBar.style.width = '100%';
+                    videoProgressText.textContent = 'Processing complete!';
+                    
+                    // Slight delay before showing results for UI smoothness
+                    setTimeout(() => {
+                        videoLoading.classList.remove('active');
+                        
+                        if (data.error) {
+                            showToast(data.error);
+                            videoForm.classList.remove('hidden');
+                        } else {
+                            // Display the results from server
+                            displayVideoResult(data);
+                        }
+                    }, 500);
+                })
+                .catch(error => {
+                    clearInterval(progressInterval);
+                    console.error('Error:', error);
+                    showToast(`Analysis failed: ${error.message}`);
+                    videoLoading.classList.remove('active');
+                    videoForm.classList.remove('hidden');
+                });
+            });
+            
+            // Function to display video analysis results
+            function displayVideoResult(data) {
+                // Validate received data
+                if (!data || typeof data !== 'object') {
+                    showToast('Invalid result data received');
+                    return;
+                }
+                
+                // Default values if data fields are missing
+                const prediction = data.prediction || 'UNKNOWN';
+                const confidence = data.confidence || 0.5;
+                const totalFrames = data.total_frames || 0;
+                const fakeFrames = data.fake_frames || 0;
+                const processingTime = data.processing_time || 0;
+                const frameData = data.frame_data || [];
+                
+                // Show result container
+                videoResult.classList.add('show');
+                
+                // Set video player source
+                document.getElementById('video-player').src = videoPreviewPlayer.src;
+                
+                // Set result heading and description
+                const videoPredictionText = document.getElementById('video-prediction-text');
+                const videoResultDescription = document.getElementById('video-result-description');
+                const videoConfidenceBar = document.getElementById('video-confidence-bar');
+                
+                if (prediction.toUpperCase() === 'FAKE') {
+                    videoPredictionText.textContent = 'LIKELY DEEPFAKE';
+                    videoPredictionText.className = 'text-xl font-bold text-red-600';
+                    videoResultDescription.textContent = 'Our analysis identified several inconsistencies indicating this video has been manipulated.';
+                    videoConfidenceBar.className = 'rounded flex flex-col justify-center text-center text-white bg-red-500';
+                } else {
+                    videoPredictionText.textContent = 'LIKELY AUTHENTIC';
+                    videoPredictionText.className = 'text-xl font-bold text-green-600';
+                    videoResultDescription.textContent = 'Our analysis indicates this video appears to be authentic with minimal signs of manipulation.';
+                    videoConfidenceBar.className = 'rounded flex flex-col justify-center text-center text-white bg-green-500';
+                }
+                
+                // Calculate confidence percentage
+                const confidencePercent = Math.round(confidence * 100);
+                
+                // Animate confidence bar
+                videoConfidenceBar.style.width = '0%';
+                setTimeout(() => {
+                    videoConfidenceBar.style.width = `${confidencePercent}%`;
+                    videoConfidenceBar.textContent = `${confidencePercent}%`;
+                }, 100);
+                
+                // Set frame analysis details
+                document.getElementById('total-frames').textContent = totalFrames;
+                document.getElementById('fake-frames').textContent = fakeFrames;
+                document.getElementById('video-processing-time').textContent = `${processingTime.toFixed(2)}s`;
+                
+                // Generate timeline visualization based on data
+                generateTimeline(totalFrames, fakeFrames, frameData, prediction.toUpperCase() === 'FAKE');
+                
+                // Prepare frame data for detailed view
+                prepareFrameAnalysis(frameData, totalFrames);
+            }
+            
+            // Generate video timeline visualization
+            function generateTimeline(totalFrames, fakeFrames, frameData, isFake) {
+                const timelineContainer = document.getElementById('timeline-container');
+                timelineContainer.innerHTML = '';
+                
+                // If we have frame-by-frame data, use it for precise timeline
+                if (frameData && frameData.length > 0) {
+                    const segmentCount = frameData.length;
+                    const segmentWidth = 100 / segmentCount;
+                    
+                    frameData.forEach((frame, index) => {
+                        const segment = document.createElement('div');
+                        segment.style.width = `${segmentWidth}%`;
+                        segment.style.height = '100%';
+                        segment.style.position = 'absolute';
+                        segment.style.left = `${index * segmentWidth}%`;
+                        
+                        // Use actual frame prediction
+                        const isFakeFrame = frame.prediction === 'FAKE';
+                        const confidence = frame.confidence || 0.5;
+                        
+                        // Color based on prediction and confidence
+                        if (isFakeFrame) {
+                            // Shade of red based on confidence
+                            const intensity = Math.round(150 + (confidence * 100));
+                            segment.style.backgroundColor = `rgb(${intensity}, 50, 50)`;
+                            segment.title = `Suspicious frame at ${Math.round(index/segmentCount*100)}% of video (${confidence.toFixed(2)} confidence)`;
+                        } else {
+                            // Shade of green based on confidence
+                            const intensity = Math.round(150 + (confidence * 100));
+                            segment.style.backgroundColor = `rgb(50, ${intensity}, 50)`;
+                        }
+                        
+                        timelineContainer.appendChild(segment);
+                    });
+                } else {
+                    // Fallback if no frame data is provided
+                    const segmentCount = 10;
+                    const segmentWidth = 100 / segmentCount;
+                    const fakesRatio = totalFrames > 0 ? fakeFrames / totalFrames : 0;
+                    
+                    for (let i = 0; i < segmentCount; i++) {
+                        const segment = document.createElement('div');
+                        segment.style.width = `${segmentWidth}%`;
+                        segment.style.height = '100%';
+                        segment.style.position = 'absolute';
+                        segment.style.left = `${i * segmentWidth}%`;
+                        
+                        // If overall prediction is fake, distribute fake segments based on ratio
+                        const isFakeSegment = isFake && (i / segmentCount) < fakesRatio;
+                        
+                        segment.className = isFakeSegment ? 'bg-red-500' : 'bg-green-500';
+                        if (isFakeSegment) {
+                            segment.title = `Suspicious section at ${i * 10}% of video`;
+                        }
+                        
+                        timelineContainer.appendChild(segment);
+                    }
+                }
+            }
+            
+            // Prepare frame-by-frame analysis view
+            function prepareFrameAnalysis(frameData, totalFrames) {
+                // Set up view frames button click handler
+                document.getElementById('view-frames').addEventListener('click', function() {
+                    const frameAnalysis = document.getElementById('frame-analysis');
+                    const framesContainer = document.getElementById('frames-container');
+                    
+                    frameAnalysis.classList.remove('hidden');
+                    framesContainer.innerHTML = '';
+                    
+                    // If we have frame data, use it
+                    if (frameData && frameData.length > 0) {
+                        // Limit to a reasonable number of frames to display (e.g., 20)
+                        const displayFrames = frameData.slice(0, 20);
+                        
+                        displayFrames.forEach((frame, index) => {
+                            createFrameThumbnail(framesContainer, index, frame);
+                        });
+                    } else {
+                        // Fallback if no frame data - create empty placeholders
+                        const frameCount = Math.min(totalFrames, 12) || 10;
+                        
+                        for (let i = 0; i < frameCount; i++) {
+                            createEmptyFrameThumbnail(framesContainer, i);
+                        }
+                    }
+                });
+            }
+            
+            // Create a frame thumbnail with actual frame data
+            function createFrameThumbnail(container, index, frameData) {
+                const frameDiv = document.createElement('div');
+                frameDiv.className = 'relative zoom-on-hover';
+                
+                const frameThumbnail = document.createElement('div');
+                frameThumbnail.className = 'bg-gray-200 aspect-video rounded';
+                
+                // If there's a thumbnail URL in the data, use it
+                if (frameData.thumbnail_url) {
+                    frameThumbnail.style.backgroundImage = `url(${frameData.thumbnail_url})`;
+                    frameThumbnail.style.backgroundSize = 'cover';
+                    frameThumbnail.style.backgroundPosition = 'center';
+                }
+                
+                const isFake = frameData.prediction === 'FAKE';
+                const confidence = frameData.confidence || 0.5;
+                
+                const indicator = document.createElement('div');
+                indicator.className = isFake ? 
+                    'absolute top-0 right-0 w-3 h-3 bg-red-500 rounded-full m-1' : 
+                    'absolute top-0 right-0 w-3 h-3 bg-green-500 rounded-full m-1';
+                
+                const frameNumber = document.createElement('span');
+                frameNumber.className = 'absolute bottom-0 left-0 bg-black bg-opacity-50 text-white text-xs px-1 rounded-tr';
+                frameNumber.textContent = `Frame ${index + 1}`;
+                
+                // Add confidence indicator
+                const confidenceLabel = document.createElement('span');
+                confidenceLabel.className = 'absolute bottom-0 right-0 bg-black bg-opacity-50 text-white text-xs px-1 rounded-tl';
+                confidenceLabel.textContent = `${Math.round(confidence * 100)}%`;
+                
+                frameDiv.appendChild(frameThumbnail);
+                frameDiv.appendChild(indicator);
+                frameDiv.appendChild(frameNumber);
+                frameDiv.appendChild(confidenceLabel);
+                container.appendChild(frameDiv);
+                
+                // Add click event to show detailed view (optional)
+                frameDiv.addEventListener('click', () => {
+                    showToast(`Frame ${index + 1}: ${isFake ? 'Suspicious' : 'Authentic'} (${Math.round(confidence * 100)}% confidence)`);
+                });
+            }
+            
+            // Create empty frame thumbnail as fallback
+            function createEmptyFrameThumbnail(container, index) {
+                const frameDiv = document.createElement('div');
+                frameDiv.className = 'relative zoom-on-hover';
+                
+                const frameThumbnail = document.createElement('div');
+                frameThumbnail.className = 'bg-gray-200 aspect-video rounded';
+                
+                // Alternate between red and green for demonstration
+                const isFake = index % 2 === 0;
+                
+                const indicator = document.createElement('div');
+                indicator.className = isFake ? 
+                    'absolute top-0 right-0 w-3 h-3 bg-red-500 rounded-full m-1' : 
+                    'absolute top-0 right-0 w-3 h-3 bg-green-500 rounded-full m-1';
+                
+                const frameNumber = document.createElement('span');
+                frameNumber.className = 'absolute bottom-0 left-0 bg-black bg-opacity-50 text-white text-xs px-1 rounded-tr';
+                frameNumber.textContent = `Frame ${index + 1}`;
+                
+                frameDiv.appendChild(frameThumbnail);
+                frameDiv.appendChild(indicator);
+                frameDiv.appendChild(frameNumber);
+                container.appendChild(frameDiv);
+            }
+            
+            // Close frame analysis view
+            document.getElementById('close-frames').addEventListener('click', function() {
+                document.getElementById('frame-analysis').classList.add('hidden');
+            });
+            
+            
+            // Heatmap toggle for image analysis
+            document.getElementById('toggle-heatmap').addEventListener('click', function() {
+                const resultImage = document.getElementById('result-image');
+                
+                if (resultImage.dataset.heatmap === 'on') {
+                    // Switch back to original image
+                    resultImage.style.filter = 'none';
+                    resultImage.dataset.heatmap = 'off';
+                    this.innerHTML = '<i class="fas fa-temperature-high"></i>';
+                    showToast('Heatmap disabled');
+                } else {
+                    // Apply "heatmap" effect - simulated with CSS filters
+                    resultImage.style.filter = 'saturate(200%) hue-rotate(180deg) contrast(150%)';
+                    resultImage.dataset.heatmap = 'on';
+                    this.innerHTML = '<i class="fas fa-image"></i>';
+                    showToast('Heatmap enabled - Red areas indicate potential manipulation');
+                }
+            });
+            
+            // Modal functionality
+            const infoModal = document.getElementById('info-modal');
+            const modalTitle = document.getElementById('modal-title');
+            const modalContent = document.getElementById('modal-content');
+            
+            function openModal(title, content) {
+                modalTitle.textContent = title;
+                modalContent.innerHTML = content;
+                infoModal.classList.remove('hidden');
+            }
+            
+            document.getElementById('close-modal').addEventListener('click', function() {
+                infoModal.classList.add('hidden');
+            });
+            
+            // Close modal when clicking outside
+            infoModal.addEventListener('click', function(e) {
+                if (e.target === infoModal) {
+                    infoModal.classList.add('hidden');
+                }
+            });
+            
+            // Info button click handlers
+            document.getElementById('learn-more-deepfakes').addEventListener('click', function() {
+                openModal('What are Deepfakes?', `
+                    <p class="mb-4">Deepfakes are synthetic media in which a person's likeness is replaced with computer-generated imagery using deep learning AI. The term combines "deep learning" and "fake."</p>
+                    
+                    <h4 class="font-medium text-gray-800 mb-2">Common Types of Deepfakes:</h4>
+                    <ul class="list-disc pl-5 mb-4 space-y-1">
+                        <li>Face swaps - replacing one person's face with another</li>
+                        <li>Lip-sync deepfakes - manipulating mouth movements to match fake audio</li>
+                        <li>Voice cloning - creating synthetic speech that mimics a specific person</li>
+                        <li>Full-body puppetry - controlling someone's entire body movements</li>
+                        <li>AI-generated people - entirely synthetic humans that don't exist</li>
+                    </ul>
+                    
+                    <h4 class="font-medium text-gray-800 mb-2">Potential Risks:</h4>
+                    <ul class="list-disc pl-5 mb-4 space-y-1">
+                        <li>Misinformation and fake news</li>
+                        <li>Political manipulation</li>
+                        <li>Identity fraud</li>
+                        <li>Reputation damage</li>
+                        <li>Non-consensual fake imagery</li>
+                    </ul>
+                    
+                    <p>As deepfake technology improves, detection becomes increasingly important to maintain trust in digital content.</p>
+                `);
+            });
+            
+            document.getElementById('learn-more-detection').addEventListener('click', function() {
+                openModal('How Deepfake Detection Works', `
+                    <p class="mb-4">Our deepfake detector uses multiple sophisticated AI models working together to identify manipulated content:</p>
+                    
+                    <h4 class="font-medium text-gray-800 mb-2">Image Detection Technology:</h4>
+                    <ul class="list-disc pl-5 mb-4 space-y-1">
+                        <li><span class="font-medium">Facial Inconsistency Analysis</span> - Examines facial features for unnatural elements</li>
+                        <li><span class="font-medium">Neural Artifacts Detection</span> - Identifies patterns left by GAN networks</li>
+                        <li><span class="font-medium">Pixel-level Analysis</span> - Detects abnormal pixel patterns invisible to human eyes</li>
+                        <li><span class="font-medium">Metadata Examination</span> - Analyzes image data for signs of manipulation</li>
+                    </ul>
+                    
+                    <h4 class="font-medium text-gray-800 mb-2">Video Detection Technology:</h4>
+                    <ul class="list-disc pl-5 mb-4 space-y-1">
+                        <li><span class="font-medium">Temporal Analysis</span> - Looks for inconsistencies between frames</li>
+                        <li><span class="font-medium">Biological Signals</span> - Monitors for natural pulse signals in face</li>
+                        <li><span class="font-medium">Blinking Analysis</span> - Detects unnatural blinking patterns</li>
+                        <li><span class="font-medium">Audio-Visual Sync</span> - Identifies mismatches between speech and lip movements</li>
+                    </ul>
+                    
+                    <p class="mb-2">Our models are continuously trained on the latest deepfake techniques to stay ahead of evolving methods.</p>
+                    
+                    <p class="text-sm text-gray-500">Note: No detection system is 100% accurate. Results should be considered probabilistic rather than definitive.</p>
+                `);
+            });
+            
+            document.getElementById('deepfake-tips').addEventListener('click', function() {
+                openModal('Tips for Spotting Deepfakes', `
+                    <p class="mb-4">While AI detection is powerful, human judgment remains important. Here are key signs that might indicate a deepfake:</p>
+                    
+                    <h4 class="font-medium text-gray-800 mb-2">Visual Clues:</h4>
+                    <ul class="list-disc pl-5 mb-4 space-y-1">
+                        <li>Unnatural eye movements or lack of blinking</li>
+                        <li>Irregular facial coloring or skin tone changes</li>
+                        <li>Unnatural facial expressions that don't match emotions</li>
+                        <li>Blurry or changing facial features, especially around the edges</li>
+                        <li>Inconsistent lighting or shadows on the face vs. surroundings</li>
+                        <li>Hair that looks artificial or moves unnaturally</li>
+                    </ul>
+                    
+                    <h4 class="font-medium text-gray-800 mb-2">Audio Clues:</h4>
+                    <ul class="list-disc pl-5 mb-4 space-y-1">
+                        <li>Robotic or unnatural voice patterns</li>
+                        <li>Mismatched lip movements with speech</li>
+                        <li>Unusual breathing patterns or lack of natural pauses</li>
+                        <li>Audio artifacts like buzzing or distortions</li>
+                    </ul>
+                    
+                    <h4 class="font-medium text-gray-800 mb-2">Content Verification:</h4>
+                    <ul class="list-disc pl-5 mb-4 space-y-1">
+                        <li>Cross-check information with multiple reliable sources</li>
+                        <li>Be skeptical of sensational or highly emotional content</li>
+                        <li>Check if other versions of the video/image exist online</li>
+                        <li>Consider the source and whether they are trustworthy</li>
+                    </ul>
+                    
+                    <p class="text-sm italic mt-2">Remember: When in doubt, don't share content you suspect might be fake.</p>
+                `);
+            });
+
+
+
+            
+            // Download report buttons - simulate download
+            document.getElementById('download-report').addEventListener('click', function() {
+                // Show initial toast notification
+                showToast('Generating report PDF...');
+                this.disabled = false;
+                
+                // Prepare data to send to the server (customize as needed)
+                const reportData = {
+                    prediction: document.getElementById('result-heading').textContent,
+                    confidence: document.getElementById('confidence-bar').textContent
+                };
+                
+                // Send a POST request to the server to generate the report
+                fetch('/generate-report/', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'X-CSRFToken': getCookie('csrftoken')  // Include if using Django CSRF
+                    },
+                    body: JSON.stringify(reportData)
+                })
+                .then(response => {
+                    if (!response.ok) {
+                        throw new Error('Failed to generate report');
+                    }
+                    return response.blob();  // Expect a PDF file from the server
+                })
+                .then(blob => {
+                    // Create a temporary URL for the downloaded file
+                    const url = window.URL.createObjectURL(blob);
+                    
+                    // Create a hidden link to trigger the download
+                    const a = document.createElement('a');
+                    a.href = url;
+                    a.download = 'deepfake_report.pdf';  // Set the file name
+                    document.body.appendChild(a);
+                    a.click();
+                    a.remove();
+                    window.URL.revokeObjectURL(url);
+                    
+                    // Show success toast
+                    showToast('Report downloaded successfully!');
+                })
+                .catch(error => {
+                    console.error('Error:', error);
+                    showToast('Failed to generate report. Please try again.');
+                });
+            });
+
+
+
+
+
+            document.getElementById('download-video-report').addEventListener('click', function() {
+                showToast('Generating video analysis report...');
+                setTimeout(() => {
+                    showToast('Video report downloaded successfully!');
+                }, 2000);
+            });
+        });
+    </script>
+</body>
+</html>

@@ -1,0 +1,6 @@
+venv/
+*.pyd
+*.dll
+*.h5
+*.pt
+__pycache__/
