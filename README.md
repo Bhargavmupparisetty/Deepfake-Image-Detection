@@ -106,4 +106,4 @@ This project is licensed under the MIT License.
 - Host the web app in cloud
 
 ### Author
-Developed by Bhargav Mupparisetty
+Bhargav Mupparisetty
